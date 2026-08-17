@@ -1,0 +1,9 @@
+# Offline build tooling and its outputs stay local — the repo is just the site.
+tools/
+PLAN.md
+.claude/
+_cache/
+*.pyc
+__pycache__/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#120f1c">
+<title>Tarot Helper</title>
+<link rel="stylesheet" href="css/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔮</text></svg>">
+</head>
+<body>
+
+<!-- ---------- intro ---------- -->
+<section id="screen-intro" class="screen is-active">
+  <div class="intro">
+    <div class="intro-glyph">🔮</div>
+    <h1>Tarot Helper</h1>
+    <p class="lede">Lay three cards face up, side by side. Point your camera at them and
+      the reading writes itself.</p>
+    <button id="btn-start" class="btn btn-primary">Start a reading</button>
+    <label class="btn btn-ghost" for="file-input">Use a photo instead</label>
+    <input id="file-input" type="file" accept="image/*" hidden>
+    <button id="btn-manual-intro" class="btn btn-link">Pick cards by hand</button>
+    <p id="intro-status" class="status-line">Preparing the deck…</p>
+  </div>
+</section>
+
+<!-- ---------- scanning ---------- -->
+<section id="screen-scan" class="screen">
+  <div class="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="scan-hud" class="hud">
+      <div id="scan-status" class="pill">Looking for cards…</div>
+      <div id="scan-slots" class="slots"></div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button id="btn-cancel" class="btn btn-ghost">Back</button>
+    <button id="btn-manual-scan" class="btn btn-ghost">Pick by hand</button>
+    <button id="btn-force" class="btn btn-primary" disabled>Read these</button>
+  </div>
+</section>
+
+<!-- ---------- reading ---------- -->
+<section id="screen-reading" class="screen">
+  <header class="reading-head">
+    <h2>Your reading</h2>
+    <p id="narrative" class="narrative"></p>
+  </header>
+  <div id="spread" class="spread"></div>
+  <div class="toolbar">
+    <button id="btn-again" class="btn btn-primary">Draw again</button>
+    <button id="btn-rescan" class="btn btn-ghost">Rescan</button>
+  </div>
+</section>
+
+<!-- ---------- card detail sheet ---------- -->
+<div id="detail" class="sheet" hidden>
+  <div class="sheet-inner">
+    <button id="detail-close" class="sheet-close" aria-label="Close">×</button>
+    <div id="detail-body"></div>
+  </div>
+</div>
+
+<!-- ---------- manual picker ---------- -->
+<div id="picker" class="sheet" hidden>
+  <div class="sheet-inner">
+    <button id="picker-close" class="sheet-close" aria-label="Close">×</button>
+    <h3>Choose your cards</h3>
+    <p id="picker-hint" class="muted">Tap three cards, in order.</p>
+    <input id="picker-search" type="search" placeholder="Search 78 cards…" autocomplete="off">
+    <div id="picker-list" class="picker-list"></div>
+  </div>
+</div>
+
+<script src="js/reading.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
