@@ -184,6 +184,11 @@ h1 { font-size: 1.9rem; }
   align-items: flex-end;
   backdrop-filter: blur(3px);
 }
+.sheet[hidden] {
+  /* Author rules always beat the UA [hidden]{display:none} default at equal specificity,
+     so .sheet's own display:flex above was keeping this open regardless of the attribute. */
+  display: none;
+}
 .sheet-inner {
   width: 100%;
   max-height: 88vh;
