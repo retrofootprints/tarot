@@ -14,6 +14,25 @@ let cardCount = 0;
 let busy = false;
 let rotation = 0; // which quad to match next, so work is spread across frames
 
+// Uncaught exceptions inside async callbacks (notably OpenCV's own WASM bootstrap promise
+// chain) don't reach the try/catch below and don't trigger the main thread's worker.onerror
+// either — they just vanish, which on some iPhones is exactly what happens when the WASM
+// module fails to instantiate under memory pressure. Surface them explicitly instead of
+// leaving the page stuck on "still loading" forever.
+self.addEventListener('error', (event) => {
+  self.postMessage({
+    type: 'error',
+    message: `Worker error: ${event.message || event} (${event.filename || '?'}:${event.lineno || '?'})`,
+  });
+});
+self.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  self.postMessage({
+    type: 'error',
+    message: `Unhandled rejection during setup: ${(reason && reason.message) || reason}`,
+  });
+});
+
 self.importScripts('recognizer.core.js');
 
 function loadOpenCV() {
@@ -49,10 +68,29 @@ self.onmessage = async (event) => {
   const msg = event.data;
 
   if (msg.type === 'init') {
+    // If OpenCV's WASM bootstrap never calls back (seen on some iPhones under memory
+    // pressure), surface something actionable instead of leaving the button spinning
+    // forever with no explanation.
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        self.postMessage({
+          type: 'error',
+          message: 'Still trying to start the recogniser after 20s. On iPhone this usually '
+            + 'means the browser ran low on memory loading OpenCV — try closing other tabs '
+            + 'and apps, then reload the page.',
+        });
+      }
+    }, 20000);
+
     try {
       await init();
+      settled = true;
+      clearTimeout(timer);
       self.postMessage({ type: 'ready', cardCount });
     } catch (err) {
+      settled = true;
+      clearTimeout(timer);
       self.postMessage({ type: 'error', message: String((err && err.message) || err) });
     }
     return;
