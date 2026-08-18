@@ -320,14 +320,28 @@ function showReading(entries) {
 
   entries.forEach((entry, index) => {
     const position = window.Reading.POSITIONS[index];
-    const tile = document.createElement('button');
+    const card = entry.card;
+    const tile = document.createElement('div');
     tile.className = 'card-tile' + (entry.reversed ? ' is-reversed' : '');
+    // The "brief" block is the landscape cheat-sheet: essence + light/shadow/reversed,
+    // always in the DOM but only shown by CSS in landscape, so no re-render on rotation.
+    // Keywords and the imagery description stay behind the full detail sheet — useful for
+    // checking against the physical card, but not needed while narrating a reading live.
     tile.innerHTML = `
-      <div class="card-pos">${position ? position.label : ''}</div>
-      <img src="assets/cards/${entry.card.id}.webp" alt="${entry.card.name}" loading="lazy">
-      <div class="card-name">${entry.card.name}</div>
-      ${entry.reversed ? '<div class="card-rev">reversed</div>' : ''}`;
-    tile.addEventListener('click', () => showDetail(entry));
+      <button class="card-open" aria-label="Full details for ${card.name}">
+        <div class="card-pos">${position ? position.label : ''}</div>
+        <img src="assets/cards/${card.id}.webp" alt="${card.name}" loading="lazy">
+        <div class="card-name">${card.name}</div>
+        ${entry.reversed ? '<div class="card-rev">reversed</div>' : ''}
+      </button>
+      <div class="card-brief">
+        <p class="brief-essence">${card.essence}</p>
+        <div class="meaning light"><h4>Light</h4><p>${card.light}</p></div>
+        <div class="meaning shadow"><h4>Shadow</h4><p>${card.shadow}</p></div>
+        ${entry.reversed
+          ? `<div class="meaning reversed"><h4>Reversed</h4><p>${card.reversed}</p></div>` : ''}
+      </div>`;
+    tile.querySelector('.card-open').addEventListener('click', () => showDetail(entry));
     spread.appendChild(tile);
   });
 
