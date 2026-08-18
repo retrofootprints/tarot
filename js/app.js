@@ -354,6 +354,19 @@ function showDetail(entry) {
   el('detail').hidden = false;
 }
 
+/* ---------- random draw ---------- */
+
+function drawRandom() {
+  if (!cardsById.size) return;
+  const shuffled = [...cardsById.values()].sort(() => Math.random() - 0.5);
+  const entries = shuffled.slice(0, 3).map((card) => ({
+    card,
+    reversed: Math.random() < 0.5,
+  }));
+  stopScan();
+  showReading(entries);
+}
+
 /* ---------- manual picker ---------- */
 
 function openPicker() {
@@ -403,8 +416,9 @@ function choosePicker(id, query) {
 el('btn-start').addEventListener('click', startScan);
 el('btn-cancel').addEventListener('click', () => { stopScan(); show('intro'); });
 el('btn-force').addEventListener('click', finishScan);
-el('btn-again').addEventListener('click', () => { show('intro'); setIntroStatus('Ready when you are.'); });
+el('btn-again').addEventListener('click', drawRandom);
 el('btn-rescan').addEventListener('click', startScan);
+el('btn-random-intro').addEventListener('click', drawRandom);
 el('btn-manual-intro').addEventListener('click', openPicker);
 el('btn-manual-scan').addEventListener('click', openPicker);
 el('picker-close').addEventListener('click', () => { el('picker').hidden = true; });

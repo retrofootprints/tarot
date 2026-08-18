@@ -57,6 +57,8 @@ False identifications across every run: **0**.
 Lay three cards face up, side by side, reasonably well lit and not overlapping. Tap
 **Start a reading** and hold the phone so all three are in frame.
 
+- **Draw three at random** — skip the camera entirely and get a reading from a virtual shuffle
+  of the full 78-card deck (also what "Draw again" does on the reading screen).
 - **Use a photo instead** — run it against a still image rather than the live camera.
 - **Pick cards by hand** — searchable list of all 78, for when recognition struggles.
 - **`?debug=1`** — shows detected quads, inlier counts and per-frame timings.
