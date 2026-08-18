@@ -1,7 +1,7 @@
 /* Caches the heavy, immutable assets so the ~3.4 MB first load is paid once and the app
  * then works offline. Bump CACHE_NAME whenever the card database or opencv build changes. */
 
-const CACHE_NAME = 'tarot-helper-v2';
+const CACHE_NAME = 'tarot-helper-v3';
 
 const PRECACHE = [
   './',
@@ -11,7 +11,6 @@ const PRECACHE = [
   'js/camera.js',
   'js/reading.js',
   'js/recognizer.core.js',
-  'js/recognizer.worker.js',
   'vendor/opencv.js',
   'data/cards.json',
   'data/card_db.json',

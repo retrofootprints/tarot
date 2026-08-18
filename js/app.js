@@ -1,4 +1,21 @@
-/* Orchestration: worker lifecycle, scan state machine, and rendering.
+/* Orchestration: recognizer lifecycle, scan state machine, and rendering.
+ *
+ * Recognition runs on the MAIN THREAD, not a Worker — the vendored opencv.js build never
+ * finished initialising inside a dedicated Worker (confirmed by profiling: the renderer
+ * pegged a CPU core indefinitely and never called back, on both desktop Chrome and iPhone
+ * Chrome).
+ *
+ * A second, easy-to-miss trap on the main thread too: Module.onRuntimeInitialized fires
+ * correctly and fast (~0.3-1s), but resuming into an `await`/Promise continuation chained
+ * off of it never runs — confirmed with CDP: even the DevTools protocol itself stopped
+ * responding to that tab, for minutes, with no exception thrown anywhere. Doing the actual
+ * OpenCV work (building the database, constructing ORB/BFMatcher/CLAHE) SYNCHRONOUSLY inside
+ * onRuntimeInitialized instead completes in well under a second. This matches how OpenCV.js's
+ * own docs show it used, for what it's worth. Once cv is ready, calling into it later from an
+ * unrelated callback (setTimeout, setInterval — i.e. exactly how the camera loop calls
+ * recognizer.processFrame) is completely fine; it's specifically resuming the original
+ * init Promise that hangs. So: fetch the card database FIRST, then load opencv.js, then do
+ * everything else inside onRuntimeInitialized — never `await loadOpenCV()`.
  *
  * A card is only accepted after it has been seen in CONFIRM_HITS separate frames. Single
  * frames are occasionally wrong under motion blur; agreement across frames is what makes
@@ -21,12 +38,13 @@ const screens = {
 };
 
 let cardsById = new Map();
-let worker = null;
-let workerReady = false;
+let recognizer = null;
+let recognizerReady = false;
 let camera = null;
 let candidates = new Map();  // id -> { hits, lastSeen, inliers, reversed, x }
 let locked = [];
 let pickerChoice = [];
+let rotation = 0; // which quad to match next during live scanning, spread across frames
 
 /* ---------- boot ---------- */
 
@@ -39,27 +57,46 @@ async function boot() {
     return;
   }
 
-  worker = new Worker('js/recognizer.worker.js');
-  worker.onmessage = onWorkerMessage;
-  worker.onerror = (e) => setIntroStatus(`Recogniser failed to start: ${e.message}`, true);
-  worker.postMessage({ type: 'init' });
   setIntroStatus('Warming up the recogniser…');
 
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+  let meta;
+  let binary;
+  let signatures;
+  try {
+    [meta, binary, signatures] = await Promise.all([
+      fetch('data/card_db.json').then((r) => r.json()),
+      fetch('data/card_db.bin').then((r) => r.arrayBuffer()),
+      fetch('data/card_sig.bin').then((r) => r.arrayBuffer()),
+    ]);
+  } catch (err) {
+    setIntroStatus(`Could not load the card database: ${err.message}`, true);
+    return;
   }
-}
 
-function onWorkerMessage(event) {
-  const msg = event.data;
-  if (msg.type === 'ready') {
-    workerReady = true;
-    setIntroStatus(`Ready — ${msg.cardCount} cards loaded.`);
-  } else if (msg.type === 'error') {
-    setIntroStatus(msg.message, true);
-  } else if (msg.type === 'result') {
-    onResult(msg);
-  }
+  // Everything from here on runs SYNCHRONOUSLY inside onRuntimeInitialized — see the note
+  // at the top of this file for why that matters.
+  window.Module = {
+    onRuntimeInitialized() {
+      try {
+        const cv = window.cv;
+        const db = window.RecognizerCore.buildDatabase(cv, meta, binary, signatures);
+        recognizer = window.RecognizerCore.createRecognizer(cv, db);
+        recognizerReady = true;
+        setIntroStatus(`Ready — ${db.entries.length} cards loaded.`);
+      } catch (err) {
+        setIntroStatus(`Recogniser failed to start: ${err.message}`, true);
+        return;
+      }
+      if ('serviceWorker' in navigator && location.protocol === 'https:') {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      }
+    },
+    printErr() {},
+  };
+  const script = document.createElement('script');
+  script.src = 'vendor/opencv.js';
+  script.onerror = () => setIntroStatus('Could not load the recognition engine (opencv.js).', true);
+  document.head.appendChild(script);
 }
 
 function setIntroStatus(text, isError = false) {
@@ -76,7 +113,7 @@ function show(name) {
 /* ---------- scanning ---------- */
 
 async function startScan() {
-  if (!workerReady) {
+  if (!recognizerReady) {
     setIntroStatus('Still loading — give it a moment.', true);
     return;
   }
@@ -88,18 +125,14 @@ async function startScan() {
 
   camera = new window.CameraKit.Camera(el('video'));
   camera.onFrame = (image) => {
-    worker.postMessage(
-      {
-        type: 'frame',
-        width: image.width,
-        height: image.height,
-        buffer: image.data.buffer,
-        // Match one card per frame; the worker rotates through the detected quads so all
-        // three get identified within a few frames without stalling the preview.
-        maxMatches: 1,
-      },
-      [image.data.buffer]
-    );
+    const started = Date.now();
+    // Match one card per frame, rotating through the detected quads, so all three get
+    // identified within a few frames without stalling the camera preview for too long.
+    const out = recognizer.processFrame(
+      new Uint8Array(image.data.buffer), image.width, image.height,
+      { maxMatches: 1, startIndex: rotation });
+    rotation += 1;
+    onResult({ quads: out.quads, cards: out.cards, ms: Date.now() - started });
   };
   try {
     await camera.start();
@@ -247,7 +280,7 @@ function drawOverlay(quads, hits) {
 /* ---------- still photo ---------- */
 
 async function readFromFile(file) {
-  if (!workerReady) {
+  if (!recognizerReady) {
     setIntroStatus('Still loading — give it a moment.', true);
     return;
   }
@@ -255,40 +288,28 @@ async function readFromFile(file) {
   candidates.clear();
   locked = [];
   const image = await window.CameraKit.imageDataFromFile(file);
+  // Let the "Reading the photo…" status paint before the synchronous match work below.
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
-  const done = (event) => {
-    const msg = event.data;
-    if (msg.type !== 'result') return;
-    worker.removeEventListener('message', done);
-    const found = msg.cards
-      .filter((hit, i, all) => all.findIndex((o) => o.id === hit.id) === i)
-      .sort((a, b) => {
-        const ax = a.corners ? a.corners[0][0] : 0;
-        const bx = b.corners ? b.corners[0][0] : 0;
-        return ax - bx;
-      })
-      .slice(0, 3)
-      .map((hit) => ({ card: cardsById.get(hit.id), reversed: !!hit.reversed }))
-      .filter((entry) => entry.card);
+  const out = recognizer.processFrame(
+    new Uint8Array(image.data.buffer), image.width, image.height, { maxMatches: 0 });
+  const found = out.cards
+    .filter((hit, i, all) => all.findIndex((o) => o.id === hit.id) === i)
+    .sort((a, b) => {
+      const ax = a.corners ? a.corners[0][0] : 0;
+      const bx = b.corners ? b.corners[0][0] : 0;
+      return ax - bx;
+    })
+    .slice(0, 3)
+    .map((hit) => ({ card: cardsById.get(hit.id), reversed: !!hit.reversed }))
+    .filter((entry) => entry.card);
 
-    if (!found.length) {
-      setIntroStatus('No cards recognised in that photo. Try more light, or pick by hand.', true);
-      return;
-    }
-    setIntroStatus(`Found ${found.length} card${found.length === 1 ? '' : 's'}.`);
-    showReading(found);
-  };
-  worker.addEventListener('message', done);
-  worker.postMessage(
-    {
-      type: 'frame',
-      width: image.width,
-      height: image.height,
-      buffer: image.data.buffer,
-      maxMatches: 0, // a still photo is a one-shot, so match every card found
-    },
-    [image.data.buffer]
-  );
+  if (!found.length) {
+    setIntroStatus('No cards recognised in that photo. Try more light, or pick by hand.', true);
+    return;
+  }
+  setIntroStatus(`Found ${found.length} card${found.length === 1 ? '' : 's'}.`);
+  showReading(found);
 }
 
 /* ---------- reading ---------- */

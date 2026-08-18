@@ -27,6 +27,14 @@ guess. Across validation it never once named the wrong card.
 Everything is matched on **grayscale**, never colour. The line art is identical across
 Rider-Waite-Smith reprints, so a deck printed with a different palette still matches.
 
+Recognition runs on the **main thread**, not a Web Worker. It was originally off-thread, but
+the vendored `opencv.js` never finishes initialising when loaded via `importScripts()` inside
+a dedicated Worker — confirmed by profiling with Chrome DevTools Protocol: the renderer pegs
+a CPU core indefinitely and never calls back, on both desktop Chrome and iPhone Chrome. The
+identical build loaded via a normal `<script>` tag on the main thread initialises in ~1s. Each
+match takes roughly 100–700ms, so scanning briefly pauses input each frame rather than being
+silky smooth — a small cost next to the app not working at all.
+
 ## Measured accuracy
 
 Validated against synthetic camera frames — perspective-warped up to 45°, rescaled, blurred,
@@ -63,8 +71,7 @@ loads instantly and works offline.
     js/app.js               state machine, UI, temporal locking
     js/camera.js            getUserMedia capture and frame pump
     js/reading.js           three-card narrative
-    js/recognizer.core.js   the recognition algorithm (no DOM/worker APIs)
-    js/recognizer.worker.js worker transport around the core
+    js/recognizer.core.js   the recognition algorithm, loaded on the main thread
     data/cards.json         all 78 card meanings
     data/card_db.bin        46,800 ORB descriptors (1.4 MB)
     data/card_sig.bin       shortlist signatures (146 KB)
